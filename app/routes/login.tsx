@@ -1,15 +1,100 @@
 // app/routes/login.tsx
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Layout from "~/components/layout";
 import { FormField } from "~/components/form-field";
+import type { ActionFunction, LoaderFunction } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
+
+import {
+  validateEmail,
+  validatePassword,
+  validateName,
+} from "~/utils/validators.server";
+
+import { login, register, getUser } from "~/utils/auth.server";
+import { useActionData } from "@remix-run/react";
+
+export const loader: LoaderFunction = async ({ request }) => {
+  // If there's already a user in the session, redirect to the home page
+  return (await getUser(request)) ? redirect("/") : null;
+};
+
+export const action: ActionFunction = async ({ request }) => {
+  const form = await request.formData();
+  const action = form.get("_action");
+  let email = form.get("email");
+  let password = form.get("password");
+  let firstName = form.get("firstName");
+  let lastName = form.get("lastName");
+
+  if (
+    [
+      typeof action !== "string",
+      typeof email !== "string",
+      typeof password !== "string",
+    ].some(Boolean)
+  ) {
+    return json({ error: `Invalid form data`, form: action }, { status: 400 });
+  }
+
+  if (
+    action === "register" &&
+    [typeof firstName !== "string", typeof lastName !== "string"].some(Boolean)
+  ) {
+    return json({ error: `Invalid form data`, form: action }, { status: 400 });
+  }
+
+  const errors = {
+    email: validateEmail(email as string),
+    password: validatePassword(password as string),
+    ...(action === "register"
+      ? {
+          firstName: validateName((firstName as string) || ""),
+          lastName: validateName((lastName as string) || ""),
+        }
+      : {}),
+  };
+
+  if (Object.values(errors).some(Boolean)) {
+    return json(
+      {
+        errors,
+        fields: { email, password, firstName, lastName },
+        form: action,
+      },
+      { status: 400 }
+    );
+  }
+
+  switch (action) {
+    case "login": {
+      email = email as string;
+      password = password as string;
+      return await login({ email, password });
+    }
+    case "register": {
+      email = email as string;
+      password = password as string;
+      firstName = firstName as string;
+      lastName = lastName as string;
+      return await register({ email, password, firstName, lastName });
+    }
+    default:
+      return json({ error: `Invalid form action` }, { status: 400 });
+  }
+};
 
 export default function Login() {
+  const actionData = useActionData();
+  const firstLoad = useRef(true);
+  const [formError, setFormError] = useState(actionData?.error || "");
+  const [errors, setErrors] = useState(actionData?.errors || {});
   const [action, setAction] = useState("login");
   const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    firstName: "",
-    lastName: "",
+    email: actionData?.fields?.email || "",
+    password: actionData?.fields?.password || "",
+    firstName: actionData?.fields?.firstName || "",
+    lastName: actionData?.fields?.lastName || "",
   });
 
   // Updates the form data when an input changes
@@ -19,6 +104,31 @@ export default function Login() {
   ) => {
     setFormData((form) => ({ ...form, [field]: event.target.value }));
   };
+
+  useEffect(() => {
+    // Clear the form if we switch forms
+    if (!firstLoad.current) {
+      const newState = {
+        email: "",
+        password: "",
+        firstName: "",
+        lastName: "",
+      };
+      setErrors(newState);
+      setFormError("");
+      setFormData(newState);
+    }
+  }, [action]);
+
+  useEffect(() => {
+    if (!firstLoad.current) {
+      setFormError("");
+    }
+  }, [formData]);
+
+  useEffect(() => {
+    firstLoad.current = false;
+  }, []);
 
   return (
     <Layout>
@@ -39,6 +149,9 @@ export default function Login() {
         </p>
 
         <form method="POST" className="rounded-2xl bg-gray-200 p-6 w-96">
+          <div className="text-xs font-semibold text-center tracking-wide text-red-500 w-full">
+            {formError}
+          </div>
           {action !== "login" && (
             <>
               <FormField
@@ -46,12 +159,14 @@ export default function Login() {
                 label="First Name"
                 value={formData.firstName}
                 onChange={(e) => handleInputChange(e, "firstName")}
+                error={errors?.firstName}
               />
               <FormField
                 htmlFor="lastName"
                 label="Last Name"
                 value={formData.lastName}
                 onChange={(e) => handleInputChange(e, "lastName")}
+                error={errors?.lastName}
               />
             </>
           )}
@@ -60,6 +175,7 @@ export default function Login() {
             label="Email"
             value={formData.email}
             onChange={(e) => handleInputChange(e, "email")}
+            error={errors?.email}
           />
           <FormField
             htmlFor="password"
@@ -67,6 +183,7 @@ export default function Login() {
             label="Password"
             value={formData.password}
             onChange={(e) => handleInputChange(e, "password")}
+            error={errors?.password}
           />
           <div className="w-full text-center">
             <button

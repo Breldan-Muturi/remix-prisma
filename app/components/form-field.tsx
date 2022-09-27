@@ -30,7 +30,10 @@ export function FormField({
         {label}
       </label>
       <input
-        onChange={onChange}
+        onChange={(e) => {
+          onChange(e);
+          setErrorText("");
+        }}
         type={type}
         id={htmlFor}
         name={htmlFor}
