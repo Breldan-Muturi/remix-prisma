@@ -9,9 +9,16 @@ const s3 = new S3({
   secretAccessKey: process.env.KUDOS_SECRET_ACCESS_KEY,
 });
 
+async function convertToBuffer(a: AsyncIterable<Uint8Array>) {
+  const result = [];
+  for await (const chunk of a) {
+    result.push(chunk);
+  }
+  return Buffer.concat(result);
+}
+
 const uploadHandler: UploadHandler = async ({ name, filename, data }) => {
   if (name !== "profile-pic") {
-    stream.resume();
     return;
   }
 
@@ -19,7 +26,7 @@ const uploadHandler: UploadHandler = async ({ name, filename, data }) => {
     .upload({
       Bucket: process.env.KUDOS_BUCKET_NAME || "",
       Key: `${cuid()}.${filename?.split(".").slice(-1)}`,
-      Body: data,
+      Body: await convertToBuffer(data),
     })
     .promise();
 
